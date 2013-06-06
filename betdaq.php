@@ -1,0 +1,255 @@
+<?
+/*
+	betdaq api V2.0 testing script using PHP5.1+
+
+	This short scrap should start you off if you're stuck
+	Check the documentation at http://api.betdaq.com/
+	Point your browser at the endpoints 
+	http://api.betdaq.com/v2.0/ReadOnlyService.asmx
+	https://api.betdaq.com/v2.0/Secure/SecureService.asmx
+	for some xml examples
+	28th March 2007 - Fred77 
+
+
+	Added some more bits, shows drilling down to markets. I'm using 2 SOAP clients,
+	one for the readonly stuff and one for the secure https stuff, basically just so
+	that I never accidently give my password in the clear.
+	7th May 2007 - Fred77
+
+	Added some simple trial betting bits, linked from getprices (not extensively tested but works)
+	2nd June 2007 - Fred77
+
+
+	It has been pointed out that betdaq.com and betdaq.co.uk behave as different entities.
+	This script is for users that registered at betdaq.com
+	Hint: If you registered at betdaq.co.uk then change the references to api.betdaq.com to api.betdaq.co.uk
+	At time of writing there is an issue with the wsdl file at .co.uk address, it specifies an incorrect
+	endpoint for the readonly API functions which can probably be fixed with (untested)
+	$BDSoapClient->location="http://api.betdaq.co.uk/v2.0/ReadOnlyService.asmx";
+	15th October 2008 - Fred77
+
+
+
+
+
+*/
+
+ini_set('display_errors', 1); // we're not in public so show errors
+error_reporting(E_ALL); // lets see all error types to avoid sloppy programming
+date_default_timezone_set("Asia/Dhaka"); // set your timezone
+
+
+$username="nazrulcse";
+$password="123456";
+
+
+// include our faithful print_r replacing friend from reallyshiny.com
+//require("php-dump.php");
+$showdumps=true; // set to true for dumping of API function results
+
+// create a SOAP client object for readonly API functions
+// remove compression parts if your system doesn't support it
+$BDSoapClient = new SoapClient('http://api.betdaq.com/v2.0/API.wsdl', array("connection_timeout"=>30,"compression" => SOAP_COMPRESSION_ACCEPT | SOAP_COMPRESSION_GZIP));
+// add a custom SOAP header 
+$BDSoapClient->__setSoapHeaders(array(new SoapHeader('http://www.GlobalBettingExchange.com/ExternalAPI/', 'ExternalApiHeader version="2" currency="GBP" languageCode="en" username="'.$username.'"', null)));
+
+// create a SOAP client object for secure API functions
+$BDSecureSoapClient = new SoapClient('http://api.betdaq.com/v2.0/API.wsdl', array("connection_timeout"=>30,"compression" => SOAP_COMPRESSION_ACCEPT | SOAP_COMPRESSION_GZIP));
+// add a custom SOAP header 
+$BDSecureSoapClient->__setSoapHeaders(array(new SoapHeader('http://www.GlobalBettingExchange.com/ExternalAPI/', 'ExternalApiHeader version="2" currency="GBP" languageCode="en" username="'.$username.'" password="'.$password.'"', null)));
+
+
+// get/initialise inputs
+$script=htmlentities(strip_tags($_SERVER['PHP_SELF']));
+$action=isset($_GET['action'])?$_GET['action']:'';
+$id=isset($_GET['id'])?(int)$_GET['id']:0;
+$polarity=isset($_GET['polarity'])?(int)$_GET['polarity']:0;
+$esrcount=isset($_GET['esrcount'])?(int)$_GET['esrcount']:0;
+$ewsnumber=isset($_GET['ewsnumber'])?(int)$_GET['ewsnumber']:0;
+
+
+// start html output
+echo '<html><head><title>betdaq API 2.0 example</title></head><body bgcolor=#FFCCFF style="font-family: arial, verdana;">';
+
+// what's wanted?
+if ($action=="GetAccountBalances") BDGetAccountBalances(); 
+elseif ($action=="ListTopLevelEvents") BDListTopLevelEvents();
+elseif ($action=="GetEventSubTreeNoSelections") BDGetEventSubTreeNoSelections($id);
+elseif ($action=="GetMarketInformation") BDGetMarketInformation($id);
+elseif ($action=="GetPrices") BDGetPrices($id);
+elseif ($action=="PlaceOrdersNoReceipt") BDPlaceOrdersNoReceipt($id,$polarity,$esrcount,$ewsnumber);
+else echo "<br>Please pick a menu item.<br>";
+
+echo "<br><u>Menu</u><br>
+<a href='$script?action=ListTopLevelEvents'>ListTopLevelEvents</a><br>
+<a href='$script?action=GetAccountBalances'>GetAccountBalances</a>
+</body></html>";
+
+function BDListTopLevelEvents() {
+	global $BDSoapClient, $script, $showdumps;
+	try { 
+		$result = $BDSoapClient->ListTopLevelEvents(array('listTopLevelEventsRequest'=>array()));
+	} catch (SoapFault $fault) { 
+		die("SOAP Fault: (faultcode: {$fault->faultcode}, faultstring: {$fault->faultstring})");
+	} 
+	if ($showdumps) print_r($result);
+	if ($result->ListTopLevelEventsResult->ReturnStatus->Description=='Success') { // call ok?
+		$timestamp=$result->ListTopLevelEventsResult->Timestamp;
+		if (is_array($result->ListTopLevelEventsResult->EventClassifiers)) { // result contains array?
+			echo '<table bgcolor=#CCCCFF border=1><tr><th colspan=2>ListTopLevelEvents</th></tr><tr><th>Id link</th><th>Name</th></tr>';
+			foreach ($result->ListTopLevelEventsResult->EventClassifiers AS $type) {
+				echo "<tr><td><a href='$script?action=GetEventSubTreeNoSelections&id={$type->Id}'>{$type->Id}</a></td><td>{$type->Name}</td></tr>";
+			} 
+			echo '</table>';
+		} else {
+			echo "BDListTopLevelEvents result didn't contain expected array<br>";
+		}
+	} else {
+		echo "BDListTopLevelEvents error: {$result->ListTopLevelEventsResult->ReturnStatus->Description}";
+	}
+}
+
+function BDGetEventSubTreeNoSelections($id) {
+	global $BDSoapClient, $script, $showdumps;
+	try { 
+		$result = $BDSoapClient->GetEventSubTreeNoSelections(array('getEventSubTreeNoSelectionsRequest'=>array('WantDirectDescendentsOnly'=>true,'EventClassifierIds'=>$id)));
+	} catch (SoapFault $fault) { 
+		die("SOAP Fault: (faultcode: {$fault->faultcode}, faultstring: {$fault->faultstring})");
+	} 
+	if ($showdumps) print_r($result);
+	if ($result->GetEventSubTreeNoSelectionsResult->ReturnStatus->Description=='Success') { // call ok?
+		$timestamp=$result->GetEventSubTreeNoSelectionsResult->Timestamp;
+		// if EventClassifiers are present we can drill further
+		if (isset($result->GetEventSubTreeNoSelectionsResult->EventClassifiers->EventClassifiers)) { 
+			if (!is_array($result->GetEventSubTreeNoSelectionsResult->EventClassifiers->EventClassifiers)) $result->GetEventSubTreeNoSelectionsResult->EventClassifiers->EventClassifiers=array($result->GetEventSubTreeNoSelectionsResult->EventClassifiers->EventClassifiers); // turn object into array if needed
+			echo "<table bgcolor=#CCCCFF border=1><tr><th colspan=2>GetEventSubTreeNoSelections EventClassifiers {$result->GetEventSubTreeNoSelectionsResult->EventClassifiers->Id} {$result->GetEventSubTreeNoSelectionsResult->EventClassifiers->Name}</th></tr><tr><th>Id link</th><th>Name</th></tr>";
+			foreach ($result->GetEventSubTreeNoSelectionsResult->EventClassifiers->EventClassifiers AS $type) {
+				echo "<tr><td><a href='$script?action=GetEventSubTreeNoSelections&id={$type->Id}'>{$type->Id}</a></td><td>{$type->Name}</td></tr>";
+			} 
+			echo '</table>';
+		}
+		// if Markets are present then we've finished with GetEventSubTreeNoSelections
+		if (isset($result->GetEventSubTreeNoSelectionsResult->EventClassifiers->Markets)) { 
+			if (!is_array($result->GetEventSubTreeNoSelectionsResult->EventClassifiers->Markets)) $result->GetEventSubTreeNoSelectionsResult->EventClassifiers->Markets=array($result->GetEventSubTreeNoSelectionsResult->EventClassifiers->Markets); // turn object into array if needed
+			echo "<table bgcolor=#CCCCFF border=1><tr><th colspan=4>GetEventSubTreeNoSelections Markets {$result->GetEventSubTreeNoSelectionsResult->EventClassifiers->Id} {$result->GetEventSubTreeNoSelectionsResult->EventClassifiers->Name}</th></tr><tr><th>Id link</th><th>Name</th><th>Status</th><th>StartTime</th></tr>";
+			foreach ($result->GetEventSubTreeNoSelectionsResult->EventClassifiers->Markets AS $market) {
+				echo "<tr><td><a href='$script?action=GetMarketInformation&id={$market->Id}'>{$market->Id}</a></td><td>{$market->Name}</td><td>{$market->Status}</td><td>{$market->StartTime}</td></tr>";
+			}
+			echo '</table>';
+		} 
+	} else {
+		echo "BDGetEventSubTreeNoSelections error: {$result->GetEventSubTreeNoSelectionsResult->ReturnStatus->Description}";
+	}
+}
+
+
+function BDGetMarketInformation($id) {
+	global $BDSoapClient, $script, $showdumps;
+	try { 
+		$result = $BDSoapClient->GetMarketInformation(array('getMarketInformationRequest'=>array('MarketIds'=>$id)));
+	} catch (SoapFault $fault) { 
+		die("SOAP Fault: (faultcode: {$fault->faultcode}, faultstring: {$fault->faultstring})");
+	} 
+	if ($showdumps) print_r($result);
+	if ($result->GetMarketInformationResult->ReturnStatus->Description=='Success') { // call ok?
+		$timestamp=$result->GetMarketInformationResult->Timestamp;
+		if (is_array($result->GetMarketInformationResult->Markets->Selections)) { // result contains array?
+			echo "<table bgcolor=#CCCCFF border=1><tr><th colspan=4>GetMarketInformation Selections {$result->GetMarketInformationResult->Markets->Id} {$result->GetMarketInformationResult->Markets->Name} <a href='$script?action=GetPrices&id={$result->GetMarketInformationResult->Markets->Id}'>GetPrices</a></th></tr><tr><th>Id</th><th>Name</th><th>Status</th><th>DeductionFactor</th></tr>";
+			foreach ($result->GetMarketInformationResult->Markets->Selections AS $selection) {
+				echo "<tr><td>{$selection->Id}</td><td>{$selection->Name}</td><td>{$selection->Status}</td><td>{$selection->DeductionFactor}</td></tr>";
+			} 
+			echo '</table>';
+		} else {
+			echo "BDGetMarketInformation result didn't contain expected array<br>";
+		}
+	} else {
+		echo "BDGetMarketInformation error: {$result->GetMarketInformationResult->ReturnStatus->Description}";
+	}
+}
+
+
+function BDGetPrices($id) {
+	global $BDSoapClient, $script, $showdumps;
+	try { 
+		$result = $BDSoapClient->GetPrices(array('getPricesRequest'=>array('ThresholdAmount'=>0,  'NumberForPricesRequired'=>1, 'NumberAgainstPricesRequired'=>1, 'MarketIds'=>$id)));
+	} catch (SoapFault $fault) { 
+		die("SOAP Fault: (faultcode: {$fault->faultcode}, faultstring: {$fault->faultstring})");
+	} 
+	if ($showdumps) print_r($result);
+	if ($result->GetPricesResult->ReturnStatus->Description=='Success') { // call ok?
+		$timestamp=$result->GetPricesResult->Timestamp;
+		if (is_array($result->GetPricesResult->MarketPrices->Selections)) { // result contains array?
+			echo "<table bgcolor=#CCCCFF border=1><tr><th colspan=6>GetPrices Selections {$result->GetPricesResult->MarketPrices->Id} {$result->GetPricesResult->MarketPrices->Name}</th></tr><tr><th>Id</th><th>Name</th><th>Status</th><th>DeductionFactor</th><th>For</th><th>Against</th></tr>";
+			foreach ($result->GetPricesResult->MarketPrices->Selections AS $selection) {
+				echo "<tr><td>{$selection->Id}</td><td>{$selection->Name}</td><td>{$selection->Status}</td><td>{$selection->DeductionFactor}</td><td><a href='$script?action=PlaceOrdersNoReceipt&id={$selection->Id}&polarity=1&esrcount={$selection->ResetCount}&ewsnumber={$result->GetPricesResult->MarketPrices->WithdrawalSequenceNumber}'>back2@1000</a>";
+				if (isset($selection->ForSidePrices->Price)) echo round($selection->ForSidePrices->Stake,2)."@{$selection->ForSidePrices->Price}";
+				echo "</td><td><a href='$script?action=PlaceOrdersNoReceipt&id={$selection->Id}&polarity=2&esrcount={$selection->ResetCount}&ewsnumber={$result->GetPricesResult->MarketPrices->WithdrawalSequenceNumber}'>lay2@1.01</a>";
+				if (isset($selection->AgainstSidePrices->Price)) echo round($selection->AgainstSidePrices->Stake,2)."@{$selection->AgainstSidePrices->Price}";
+				echo '</td></tr>';
+			} 
+			echo '</table>';
+		} else {
+			echo "BDGetPrices result didn't contain expected array<br>";
+		}
+	} else {
+		echo "BDGetPrices error: {$result->GetPricesResult->ReturnStatus->Description}";
+	}
+}
+
+function BDPlaceOrdersNoReceipt($id,$polarity,$esrcount,$ewsnumber) {
+// Remove the die statement to allow some simple test betting.
+// it just allows low risk testing, backs of 2@1000 or lays of 2@1.01
+// (ie it places single bets that are unlikely to be matched)
+// Fred77 accepts no responsibility for your finances
+
+die("betting is disabled");
+
+	global $BDSecureSoapClient, $script, $showdumps;
+	if($polarity==1) $price=1000; elseif($polarity==2) $price=1.01; else die('oops polarity missing');
+	try { 
+		$result = $BDSecureSoapClient->PlaceOrdersNoReceipt(array('placeOrdersNoReceiptRequest'=>array('Orders'=>array('Order'=>array('SelectionId'=>$id, 'Stake'=>2, 'Price'=>$price, 'Polarity'=>$polarity, 'ExpectedSelectionResetCount'=>$esrcount, 'ExpectedWithdrawalSequenceNumber'=>$ewsnumber, 'CancelOnInRunning'=>true, 'CancelIfSelectionReset'=>true, 'WithdrawlRepriceOption'=>2, 'RestrictOrderToBroker'=>false, 'PunterReferenceNumber'=>0)), 'WantAllOrNothingBehaviour'=>false)));
+	if ($showdumps) print_r($result);
+	} catch (SoapFault $fault) { 
+		die("SOAP Fault: (faultcode: {$fault->faultcode}, faultstring: {$fault->faultstring})");
+	} 
+	if ($result->PlaceOrdersNoReceiptResult->ReturnStatus->Description=='Success') { // call ok?
+		$timestamp=$result->PlaceOrdersNoReceiptResult->Timestamp;
+		echo "BDPlaceOrdersNoReceipt ok<br>";
+	} else {
+		echo "BDPlaceOrdersNoReceipt error: {$result->PlaceOrdersNoReceiptResult->ReturnStatus->Description}";
+	}
+}
+
+
+function BDGetAccountBalances() {
+	global $BDSecureSoapClient, $script, $showdumps;
+	try { 
+		$result = $BDSecureSoapClient->GetAccountBalances(array('getAccountBalancesRequest'=>array()));
+	} catch (SoapFault $fault) { 
+		die("SOAP Fault: (faultcode: {$fault->faultcode}, faultstring: {$fault->faultstring})");
+	} 
+	if ($showdumps) print_r($result);
+	if ($result->GetAccountBalancesResult->ReturnStatus->Description=='Success') { // call ok?
+		$timestamp=$result->GetAccountBalancesResult->Timestamp;
+		echo "
+<table bgcolor=#CCCCFF border=1><tr><th colspan=2>GetAccountBalances</th></tr>
+<tr><td>Currency</td><td>{$result->GetAccountBalancesResult->Currency}</td></tr>
+<tr><td>Balance</td><td>{$result->GetAccountBalancesResult->Balance}</td></tr>
+<tr><td>Exposure</td><td>{$result->GetAccountBalancesResult->Exposure}</td></tr>
+<tr><td>AvailableFunds</td><td>{$result->GetAccountBalancesResult->AvailableFunds}</td></tr>
+<tr><td>Credit</td><td>{$result->GetAccountBalancesResult->Credit}</td></tr></table>
+		";
+	} else {
+		echo "BDGetAccountBalances error: {$result->GetAccountBalancesResult->ReturnStatus->Description}";
+	}
+}
+
+
+
+
+
+// getEventSubTreeWithSelectionsRequest looks like a very quick way to get lots of info and rapidly populate a database with events and runners
+//$result = $BDSoapClient->GetEventSubTreeWithSelections(array('getEventSubTreeWithSelectionsRequest'=>array('EventClassifierIds'=>872429)));
+//print_r($result);
+
+?>
