@@ -12,17 +12,17 @@ $starttime = $mtime;
 $dbh = new PDO('mysql:host=localhost;dbname=crawlcompare', 'root', 'xxxxxx');
 
 // specify a base link to start crawl, no trailing slash
-$base = "http://www.bettingexpert.com";
+$base = "http://orangeleaf.horoppa.com";
 
 // in full url which will identify internal site
-$siteIdentifier = 'bettingexpert.com';
+$siteIdentifier = 'orangeleaf.horoppa.com';
 
 // normal mode or restarted mode? 1 normal mode, 0 restarted mode
-$mode = 0;
+$normalMode = 0;
 
-bootstrap($base, $siteIdentifier, $mode);
+bootstrap($base, $siteIdentifier, $normalMode);
 
-function bootstrap($base, $siteIdentifier, $mode) {
+function bootstrap($base, $siteIdentifier, $normalMode) {
     global $dbh;
     //syslog(LOG_ALERT, "hi");
     echo strftime("%c"). "in bootstrap";
@@ -44,21 +44,23 @@ function bootstrap($base, $siteIdentifier, $mode) {
         }
     }
 
+    // retrieve queue from database, in case of restarted mode
     $queue = array();
+    $stmt = $dbh->prepare("SELECT url FROM queue");
+    if ($stmt->execute()) {
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $queue[] = $row['url'];
+        }
+    }
+
+
     $processedLists = $processedListsFromDB;
     $storedLinks = $storedLinksFromDB;
 
-    // if script halted previously, make base from last inserted row in processed table
-    if (!$mode) {
-        // TODO redefine base
-        $stmt = $dbh->prepare("SELECT url FROM processed where id =  (select max(id) from processed) ");
-        if ($stmt->execute()) {
-            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                $base .= $row['url'];
-            }
-        }
-
-    }
+    // if script halted previously, make base from first entry of the queue
+    /*if (!$normalMode) {
+        $base .= $queue[0];
+    }*/
 
     $allPageLinks = getPageLinks($base);
     $sanitizedUrls = sanitizeUrl($allPageLinks, $siteIdentifier);
@@ -87,14 +89,24 @@ function bootstrap($base, $siteIdentifier, $mode) {
         echo "\n";
 
         $stmt = $dbh->prepare("INSERT INTO processed (url) VALUES (:url)");
-        $stmt->bindParam(':url', $url);
+        $stmt->bindParam(':url', $relativePath);
 
-        //print_r("URL: ", $url);
 
-        $url = $relativePath;
+        //$url = $relativePath;
         $stmt->execute();
 
         array_push($processedLists, $relativePath);
+
+        try {
+            $stmt = $dbh->prepare("DELETE FROM queue where url =  :url");
+            $stmt->bindParam(':url', $relativePath);
+            $stmt->execute();
+            $count = $stmt->rowCount();
+
+            echo $count;
+        } catch (Exception $e) {
+            echo $e->getMessage();
+        }
 
         echo "links processed :". count($processedLists);
         echo "\n";
@@ -132,24 +144,31 @@ function storeLinks(&$storedLinks, $sanitizedUrls) {
  * @param $queue
  * @param $processedLists
  */
-function queueProcessor($sanitizedUrls, &$queue, &$processedLists, $currentLink='') {
-    echo strftime("%c"). "in queueProcessor";
-    echo "\n";
-    // we need to differentiate between queue's empty state and first time initialization
-    static $queueExists = 0;
+function queueProcessor($sanitizedUrls, &$queue, &$processedLists, $currentLink = '')
+{
+    global $dbh;
 
-    if (!$queueExists) {
-        // initialize queue
-        if (empty($queue)) {
-            $queue = $sanitizedUrls;
+    $stmt = $dbh->prepare("INSERT INTO queue (url) VALUES (:url)");
+    $stmt->bindParam(':url', $url);
+
+    echo strftime("%c") . "in queueProcessor";
+    echo "\n";
+
+    if (empty($queue)) {
+        $queue = $sanitizedUrls;
+
+        foreach ($queue as $link) {
+            $url = $link;
+            $stmt->execute();
         }
-        $queueExists = 1;
     } else {
-            foreach ($sanitizedUrls as $link) {
-                if (!in_array($link, $processedLists) && !in_array($link, $queue) && $link!=$currentLink) {
-                    array_push($queue, $link);
-                }
+        foreach ($sanitizedUrls as $link) {
+            if (!in_array($link, $processedLists) && !in_array($link, $queue) && $link != $currentLink) {
+                array_push($queue, $link);
+                $url = $link;
+                $stmt->execute();
             }
+        }
     }
 }
 
