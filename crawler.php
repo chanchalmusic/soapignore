@@ -1,9 +1,8 @@
 <?php
 /**
  *  starts with base url as root
- *  if crawler halted in the middle, check last entry in the processed table
- *  use that last entry as new start point
- */
+ *  if crawler halted in the middle, rebuild the queue table
+  */
 $mtime = microtime();
 $mtime = explode(" ",$mtime);
 $mtime = $mtime[1] + $mtime[0];
@@ -12,17 +11,15 @@ $starttime = $mtime;
 $dbh = new PDO('mysql:host=localhost;dbname=crawlcompare', 'root', 'xxxxxx');
 
 // specify a base link to start crawl, no trailing slash
-$base = "http://orangeleaf.horoppa.com";
+$base = "http://www.bettingexpert.com";
 
 // in full url which will identify internal site
-$siteIdentifier = 'orangeleaf.horoppa.com';
+$siteIdentifier = 'bettingexpert.com';
 
-// normal mode or restarted mode? 1 normal mode, 0 restarted mode
-$normalMode = 0;
 
-bootstrap($base, $siteIdentifier, $normalMode);
+bootstrap($base, $siteIdentifier);
 
-function bootstrap($base, $siteIdentifier, $normalMode) {
+function bootstrap($base, $siteIdentifier) {
     global $dbh;
     //syslog(LOG_ALERT, "hi");
     echo strftime("%c"). "in bootstrap";
@@ -56,11 +53,6 @@ function bootstrap($base, $siteIdentifier, $normalMode) {
 
     $processedLists = $processedListsFromDB;
     $storedLinks = $storedLinksFromDB;
-
-    // if script halted previously, make base from first entry of the queue
-    /*if (!$normalMode) {
-        $base .= $queue[0];
-    }*/
 
     $allPageLinks = getPageLinks($base);
     $sanitizedUrls = sanitizeUrl($allPageLinks, $siteIdentifier);
