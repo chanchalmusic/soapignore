@@ -8,7 +8,7 @@ $mtime = explode(" ",$mtime);
 $mtime = $mtime[1] + $mtime[0];
 $starttime = $mtime;
 
-$dbh = new PDO('mysql:host=localhost;dbname=crawlcompare', 'root', 'xxxxxx');
+$dbh = new PDO('mysql:host=10.168.1.56;dbname=becrawle_crawl', 'becrawle_crawl', 'xxxxxx');
 
 // specify a base link to start crawl, no trailing slash
 $base = "http://www.bettingexpert.com";
@@ -22,7 +22,7 @@ bootstrap($base, $siteIdentifier);
 function bootstrap($base, $siteIdentifier) {
     global $dbh;
     //syslog(LOG_ALERT, "hi");
-    echo strftime("%c"). "in bootstrap";
+    echo "in bootstrap";
     echo "\n";
 
     $processedListsFromDB = array();
@@ -116,7 +116,7 @@ function storeLinks(&$storedLinks, $sanitizedUrls) {
     $stmt = $dbh->prepare("INSERT INTO links (url) VALUES (:url)");
     $stmt->bindParam(':url', $url);
 
-    echo strftime("%c"). "in storeLinks";
+    echo "in storeLinks";
     echo "\n";
     foreach ($sanitizedUrls as $link) {
         if (!in_array($link, $storedLinks)) {
@@ -143,7 +143,7 @@ function queueProcessor($sanitizedUrls, &$queue, &$processedLists, $currentLink 
     $stmt = $dbh->prepare("INSERT INTO queue (url) VALUES (:url)");
     $stmt->bindParam(':url', $url);
 
-    echo strftime("%c") . "in queueProcessor";
+    echo  "in queueProcessor";
     echo "\n";
 
     if (empty($queue)) {
@@ -170,7 +170,7 @@ function queueProcessor($sanitizedUrls, &$queue, &$processedLists, $currentLink 
  * @return array of links on a paga
  */
 function getPageLinks($site='') {
-    echo strftime("%c"). "in getPageLinks";
+    echo "in getPageLinks";
     echo "\n";
 
     $ch = curl_init();
@@ -206,7 +206,7 @@ function getPageLinks($site='') {
  * @return array
  */
 function sanitizeUrl($linksToProcess, $siteIdentifier) {
-    echo strftime("%c"). "in sanitizeUrl";
+    echo  "in sanitizeUrl";
     echo "\n";
 
     $relativeUrls = array();
@@ -223,14 +223,34 @@ function sanitizeUrl($linksToProcess, $siteIdentifier) {
                     continue;
                 } else {
                     $urlParts = parse_url($link);
-                    array_push($relativeUrls, $urlParts['path']);
+
+                    // discard everything after anchor (#) tag
+                    $cleanLink = strstr($urlParts['path'], '#', true);
+                    if ($cleanLink) {
+                        $link = $cleanLink;
+                    } else {
+                        $link = $urlParts['path'];
+                    }
+
+                    if (!empty($link)) {
+                        array_push($relativeUrls, $link);
+                    }
                     continue;
                 }
             }
             // TODO add some validation here
             // discard query strings
             $link = preg_replace('/\?.*/', '', $link);
-            array_push($relativeUrls, $link);
+
+            // discard everything after anchor (#) tag
+            $cleanLink = strstr($link, '#', true);
+            if ($cleanLink) {
+                $link = $cleanLink;
+            }
+
+            if (!empty($link)) {
+                array_push($relativeUrls, $link);
+            }
         }
     }
 
